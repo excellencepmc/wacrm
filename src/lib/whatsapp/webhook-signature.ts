@@ -23,13 +23,17 @@ export function verifyMetaWebhookSignature(
   signatureHeader: string | null,
 ): boolean {
   const secret = process.env.META_APP_SECRET
-  if (!secret) {
-    console.error(
-      '[webhook] META_APP_SECRET is not set — rejecting request. ' +
-        'Configure the env var (Meta → App Settings → Basic → App Secret) ' +
-        'to enable signature verification.',
-    )
-    return false
+  const isDevPlaceholder = !secret || secret === 'your-meta-app-secret'
+
+  // In development, skip signature verification if the secret isn't set yet.
+  // In production (NODE_ENV=production) always enforce it.
+  if (isDevPlaceholder) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[webhook] META_APP_SECRET is not configured — rejecting in production.')
+      return false
+    }
+    console.warn('[webhook] META_APP_SECRET not set — skipping signature check in development.')
+    return true
   }
 
   if (!signatureHeader) return false

@@ -1,60 +1,38 @@
-import { createServerClient } from '@supabase/ssr'
-import { NextResponse, type NextRequest } from 'next/server'
+import NextAuth from 'next-auth'
+import { authConfig } from './auth.config'
+import { NextResponse } from 'next/server'
 
-export async function middleware(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request })
+const AUTH_PAGES      = ['/login', '/signup', '/forgot-password']
+const PROTECTED_PATHS = ['/dashboard', '/inbox', '/contacts', '/pipelines', '/broadcasts', '/automations', '/settings']
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll()
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value))
-          supabaseResponse = NextResponse.next({ request })
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          )
-        },
-      },
-    }
-  )
+// Use the edge-compatible config (no pg / db imports) for middleware
+const { auth } = NextAuth(authConfig)
 
-  const { data: { user } } = await supabase.auth.getUser()
+export default auth((req) => {
+  const { pathname } = req.nextUrl
+  const isLoggedIn   = !!req.auth
 
-  // Auth pages - redirect to dashboard if already logged in
-  if (user && (
-    request.nextUrl.pathname === '/login' ||
-    request.nextUrl.pathname === '/signup' ||
-    request.nextUrl.pathname === '/forgot-password'
-  )) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/dashboard'
-    return NextResponse.redirect(url)
+  if (isLoggedIn && AUTH_PAGES.some(p => pathname === p)) {
+    return NextResponse.redirect(new URL('/dashboard', req.url))
   }
 
-  // Protected pages - redirect to login if not authenticated
-  const protectedPaths = ['/dashboard', '/inbox', '/contacts', '/pipelines', '/broadcasts', '/automations', '/settings']
-  if (!user && protectedPaths.some(path => request.nextUrl.pathname.startsWith(path))) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/login'
-    return NextResponse.redirect(url)
+  if (!isLoggedIn && PROTECTED_PATHS.some(p => pathname.startsWith(p))) {
+    const loginUrl = new URL('/login', req.url)
+    loginUrl.searchParams.set('callbackUrl', pathname)
+    return NextResponse.redirect(loginUrl)
   }
 
-  // API routes that need auth (not webhooks)
-  if (!user && request.nextUrl.pathname.startsWith('/api/whatsapp/') &&
-      !request.nextUrl.pathname.includes('/webhook')) {
+  if (!isLoggedIn &&
+      pathname.startsWith('/api/whatsapp/') &&
+      !pathname.includes('/webhook')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-
-  return supabaseResponse
-}
+})
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    // Exclude NextAuth API routes — they handle their own CSRF cookies.
+    // Including them causes two conflicting CSRF tokens to be set.
+    '/((?!_next/static|_next/image|favicon.ico|api/auth|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }

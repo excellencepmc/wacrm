@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
+// TODO: migrate to API fetch — Supabase client removed;
 import { Broadcast, BroadcastRecipient, RecipientStatus } from '@/types';
 import { Button } from '@/components/ui/button';
 import {
@@ -48,7 +48,9 @@ interface StatCardProps {
 }
 
 function StatCard({ label, value, total, icon, color }: StatCardProps) {
-  const pct = total > 0 ? Math.round((value / total) * 100) : 0;
+  const safeValue = value ?? 0;
+  const safeTotal = total ?? 0;
+  const pct = safeTotal > 0 ? Math.round((safeValue / safeTotal) * 100) : 0;
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
       <div className="flex items-center justify-between">
@@ -57,7 +59,7 @@ function StatCard({ label, value, total, icon, color }: StatCardProps) {
         </div>
         <span className="text-xs text-slate-500">{pct}%</span>
       </div>
-      <p className="mt-3 text-2xl font-bold text-white">{value.toLocaleString()}</p>
+      <p className="mt-3 text-2xl font-bold text-white">{safeValue.toLocaleString()}</p>
       <p className="text-xs text-slate-400">{label}</p>
     </div>
   );
@@ -75,16 +77,17 @@ interface FunnelStep {
  * always render a full bar at the top and proportional tails.
  */
 function FunnelChart({ steps }: { steps: FunnelStep[] }) {
-  const max = Math.max(...steps.map((s) => s.value), 1);
+  const max = Math.max(...steps.map((s) => s.value ?? 0), 1);
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
       <h3 className="mb-4 text-sm font-medium text-white">Funnel</h3>
       <div className="space-y-2">
         {steps.map((step) => {
-          const pctOfMax = Math.max(5, Math.round((step.value / max) * 100));
+          const safeStep = step.value ?? 0;
+          const pctOfMax = Math.max(5, Math.round((safeStep / max) * 100));
           const pctOfSent =
             steps[0].value > 0
-              ? Math.round((step.value / steps[0].value) * 100)
+              ? Math.round((safeStep / steps[0].value) * 100)
               : 0;
           return (
             <div key={step.label} className="flex items-center gap-3">
@@ -97,7 +100,7 @@ function FunnelChart({ steps }: { steps: FunnelStep[] }) {
                   style={{ width: `${pctOfMax}%` }}
                 />
                 <span className="absolute inset-0 flex items-center px-3 text-xs font-medium text-white">
-                  {step.value.toLocaleString()}
+                  {safeStep.toLocaleString()}
                   <span className="ml-2 text-slate-300/80">
                     ({pctOfSent}%)
                   </span>
@@ -159,24 +162,10 @@ export default function BroadcastDetailPage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const supabase = createClient();
-
-        const { data: bc, error: bcError } = await supabase
-          .from('broadcasts')
-          .select('*')
-          .eq('id', broadcastId)
-          .single();
-
-        if (bcError) throw bcError;
+        const res = await fetch(`/api/broadcasts/${broadcastId}`);
+        if (!res.ok) throw new Error('Broadcast not found');
+        const { broadcast: bc, recipients: recs } = await res.json();
         setBroadcast(bc);
-
-        const { data: recs, error: recsError } = await supabase
-          .from('broadcast_recipients')
-          .select('*, contact:contacts(*)')
-          .eq('broadcast_id', broadcastId)
-          .order('created_at', { ascending: false });
-
-        if (recsError) throw recsError;
         setRecipients(recs ?? []);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load broadcast');
@@ -225,20 +214,9 @@ export default function BroadcastDetailPage() {
 
   async function handleDelete() {
     setDeleting(true);
-    const supabase = createClient();
-    // broadcast_recipients cascades on broadcasts.id (migration 001), so a
-    // single delete is sufficient — the aggregate trigger in migration 003
-    // is defined on broadcast_recipients but fires only on its own row
-    // changes, not on a cascaded drop of the parent row.
-    const { error: delErr } = await supabase
-      .from('broadcasts')
-      .delete()
-      .eq('id', broadcastId);
+    const res = await fetch(`/api/broadcasts/${broadcastId}`, { method: 'DELETE' });
     setDeleting(false);
-    if (delErr) {
-      toast.error(`Failed to delete: ${delErr.message}`);
-      return;
-    }
+    if (!res.ok) { toast.error('Failed to delete broadcast'); return; }
     toast.success('Broadcast deleted');
     router.push('/broadcasts');
   }
@@ -265,10 +243,9 @@ export default function BroadcastDetailPage() {
   const status = getBroadcastStatus(broadcast.status);
 
   const funnelSteps: FunnelStep[] = [
-    { label: 'Sent', value: broadcast.sent_count, color: 'bg-violet-500' },
-    { label: 'Delivered', value: broadcast.delivered_count, color: 'bg-teal-500' },
-    { label: 'Read', value: broadcast.read_count, color: 'bg-blue-500' },
-    { label: 'Replied', value: broadcast.replied_count, color: 'bg-indigo-500' },
+    { label: 'Sent',      value: broadcast.sent_count      ?? 0, color: 'bg-violet-500' },
+    { label: 'Delivered', value: broadcast.delivered_count ?? 0, color: 'bg-teal-500' },
+    { label: 'Read',      value: broadcast.read_count      ?? 0, color: 'bg-blue-500' },
   ];
 
   return (
@@ -347,47 +324,41 @@ export default function BroadcastDetailPage() {
         )}
       </div>
 
-      {/* Stats — 6 cards: Total / Sent / Delivered / Read / Replied / Failed */}
+      {/* Stats — 5 cards: Total / Sent / Delivered / Read / Failed */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <StatCard
           label="Total Recipients"
-          value={broadcast.total_recipients}
-          total={broadcast.total_recipients}
+          value={broadcast.total_recipients ?? 0}
+          total={broadcast.total_recipients ?? 0}
           icon={<Users className="h-4 w-4" />}
           color="bg-slate-800 text-slate-300"
         />
         <StatCard
           label="Sent"
-          value={broadcast.sent_count}
-          total={broadcast.total_recipients}
+          value={broadcast.sent_count ?? 0}
+          total={broadcast.total_recipients ?? 0}
           icon={<Send className="h-4 w-4" />}
           color="bg-violet-500/10 text-violet-400"
         />
         <StatCard
           label="Delivered"
-          value={broadcast.delivered_count}
-          total={broadcast.total_recipients}
+          value={broadcast.delivered_count ?? 0}
+          total={broadcast.total_recipients ?? 0}
           icon={<CheckCheck className="h-4 w-4" />}
           color="bg-teal-500/10 text-teal-400"
         />
         <StatCard
           label="Read"
-          value={broadcast.read_count}
-          total={broadcast.total_recipients}
+          value={broadcast.read_count ?? 0}
+          total={broadcast.total_recipients ?? 0}
           icon={<Eye className="h-4 w-4" />}
           color="bg-blue-500/10 text-blue-400"
         />
-        <StatCard
-          label="Replied"
-          value={broadcast.replied_count}
-          total={broadcast.total_recipients}
-          icon={<MessageCircle className="h-4 w-4" />}
-          color="bg-indigo-500/10 text-indigo-400"
-        />
+
         <StatCard
           label="Failed"
-          value={broadcast.failed_count}
-          total={broadcast.total_recipients}
+          value={broadcast.failed_count ?? 0}
+          total={broadcast.total_recipients ?? 0}
           icon={<AlertCircle className="h-4 w-4" />}
           color="bg-red-500/10 text-red-400"
         />

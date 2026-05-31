@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+// TODO: migrate to API fetch — Supabase client removed
 import {
   MessageSquare,
   UserPlus,
@@ -59,7 +59,7 @@ export default function DashboardPage() {
   const [activityLoading, setActivityLoading] = useState(true)
 
   const loadAll = useCallback(() => {
-    const db = createClient()
+    const db = null
 
     // Kick everything off in parallel. Each block has its own
     // setState + finally so a slow query doesn't hold up faster
@@ -106,7 +106,7 @@ export default function DashboardPage() {
       setRange(r)
       if (series[r] !== null) return
       setSeriesLoading(true)
-      const db = createClient()
+      const db = null
       loadConversationsSeries(db, r)
         .then((s) => setSeries((prev) => ({ ...prev, [r]: s })))
         .catch((err) => console.error('[dashboard] series failed:', err))

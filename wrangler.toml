@@ -1,0 +1,33 @@
+name = "casasindhu-wa-crm"
+main = ".open-next/worker.js"
+compatibility_date = "2025-05-01"
+compatibility_flags = ["nodejs_compat_v2"]
+
+[assets]
+directory = ".open-next/assets"
+binding = "ASSETS"
+
+# ─── Non-secret vars (safe to commit) ────────────────────────────────────────
+[vars]
+NEXTAUTH_URL         = "https://casasindhu-wa-crm.excellencetechlab.workers.dev"
+NEXT_PUBLIC_SITE_URL = "https://casasindhu-wa-crm.excellencetechlab.workers.dev"
+AUTH_TRUST_HOST      = "true"
+
+# ─── Secrets (set via Cloudflare Dashboard or `wrangler secret put`) ─────────
+# Never commit real values here.
+#
+#   DATABASE_URL          — postgresql://daleepkumar:<pass>@13.126.60.216:5432/casasindhu-wa?sslmode=disable
+#   NEXTAUTH_SECRET       — existing value from .env.local
+#   ENCRYPTION_KEY        — existing value from .env.local
+#   META_APP_SECRET       — Meta Developers → App Settings → Basic → App Secret
+#   AUTOMATION_CRON_SECRET — run: openssl rand -hex 32
+
+# ─── Local dev override (wrangler dev / cf:preview) ──────────────────────────
+# Copy the block below into .dev.vars (gitignored) and fill in real values:
+#
+#   NEXTAUTH_URL=http://localhost:8788
+#   NEXT_PUBLIC_SITE_URL=http://localhost:8788
+#   DATABASE_URL=postgresql://daleepkumar:61Gi7lnSATRDhpKi@localhost:5432/casasindhu-wa
+#   NEXTAUTH_SECRET=720b4bf3247bc3d926c517ed77a667ca2958b8ac235e5c86b954e1a970fef9dc
+#   ENCRYPTION_KEY=c50a6ebda64cf23d5391e278e3e10572b9585123d7c86fe8024bc11ce44c1ebb
+#   META_APP_SECRET=your-meta-app-secret

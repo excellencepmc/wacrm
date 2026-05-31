@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
 import { Broadcast } from '@/types';
 import { Button } from '@/components/ui/button';
 import {
@@ -65,14 +64,9 @@ export default function BroadcastsPage() {
 
   async function fetchBroadcasts() {
     try {
-      const supabase = createClient();
-      const { data, error: fetchError } = await supabase
-        .from('broadcasts')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (fetchError) throw fetchError;
-      setBroadcasts(data ?? []);
+      const res = await fetch('/api/broadcasts');
+      if (!res.ok) throw new Error('Failed to load broadcasts');
+      setBroadcasts(await res.json() ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load broadcasts');
     } finally {
@@ -237,19 +231,19 @@ export default function BroadcastsPage() {
                       {broadcast.template_name}
                     </TableCell>
                     <TableCell className="hidden text-right text-slate-300 tabular-nums sm:table-cell">
-                      {broadcast.total_recipients}
+                      {broadcast.total_recipients ?? 0}
                     </TableCell>
                     <TableCell className="hidden lg:table-cell">
                       <RateCell
                         value={broadcast.delivered_count}
-                        total={broadcast.total_recipients}
+                        total={broadcast.total_recipients ?? 0}
                         color="bg-violet-500"
                       />
                     </TableCell>
                     <TableCell className="hidden lg:table-cell">
                       <RateCell
                         value={broadcast.read_count}
-                        total={broadcast.total_recipients}
+                        total={broadcast.total_recipients ?? 0}
                         color="bg-blue-500"
                       />
                     </TableCell>
