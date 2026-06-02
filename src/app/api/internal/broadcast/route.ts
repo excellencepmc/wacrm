@@ -14,15 +14,21 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { recipients, template_name, template_language, template_params } = await request.json()
+    const { recipients, template_name, template_params } = await request.json()
 
     if (!template_name) return NextResponse.json({ error: 'template_name is required' }, { status: 400 })
 
-    const recipientList: Recipient[] = Array.isArray(recipients) && recipients.length
-      ? recipients
-      : []
-
+    const recipientList: Recipient[] = Array.isArray(recipients) && recipients.length ? recipients : []
     if (!recipientList.length) return NextResponse.json({ error: 'recipients array is required' }, { status: 400 })
+
+    // Look up language from message_templates table — no hardcoding
+    const tmpl = await queryOne<{ language: string }>(
+      `SELECT language FROM message_templates WHERE name = $1 AND status IN ('APPROVED','Approved','Active','active') LIMIT 1`,
+      [template_name],
+    )
+    if (!tmpl) return NextResponse.json({ error: `Template '${template_name}' not found or not approved` }, { status: 404 })
+
+    const language = tmpl.language
 
     // Use the first available WhatsApp config (single-tenant internal use)
     const config = await queryOne<{ phone_number_id: string; access_token: string }>(
@@ -51,7 +57,7 @@ export async function POST(request: Request) {
             accessToken,
             to: v,
             templateName: template_name,
-            language: template_language ?? 'en_US',
+            language,
             params,
           })
           sentId = res.messageId; lastErr = null; break
