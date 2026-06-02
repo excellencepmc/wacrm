@@ -7,6 +7,14 @@ const META_API_BASE = 'https://graph.facebook.com/v21.0'
 
 interface Recipient { phone: string; params?: string[] }
 
+/** Extract variable names from template body text, e.g. {{request_type}} → ['request_type'] */
+function extractVarNames(bodyText: string): string[] {
+  const matches = bodyText.match(/\{\{([^}]+)\}\}/g) || []
+  return matches
+    .map(m => m.replace(/\{\{|\}\}/g, '').trim())
+    .filter(v => isNaN(Number(v))) // keep only named vars, skip positional {{1}}
+}
+
 async function sendTemplate(
   phoneNumberId: string,
   accessToken: string,
@@ -14,16 +22,24 @@ async function sendTemplate(
   templateName: string,
   language: string,
   category: string,
+  bodyText: string,
   params: string[],
 ): Promise<string> {
   const components: object[] = []
 
   if (params.length > 0) {
+    const varNames = extractVarNames(bodyText)
+    const useNamed = varNames.length > 0
+
     components.push({
       type: 'body',
-      parameters: params.map(p => ({ type: 'text', text: String(p) })),
+      parameters: params.map((p, i) =>
+        useNamed
+          ? { type: 'text', parameter_name: varNames[i] ?? String(i + 1), text: String(p) }
+          : { type: 'text', text: String(p) }
+      ),
     })
-    // Authentication templates also need the OTP in the button component
+
     if (category.toLowerCase() === 'authentication') {
       components.push({
         type: 'button',
@@ -60,7 +76,6 @@ async function sendTemplate(
   return data.messages[0].id
 }
 
-// Internal service-to-service endpoint — protected by API key, no session required
 export async function POST(request: Request) {
   const apiKey = request.headers.get('x-internal-api-key')
   if (!apiKey || apiKey !== process.env.WA_INTERNAL_API_KEY) {
@@ -75,9 +90,8 @@ export async function POST(request: Request) {
     const recipientList: Recipient[] = Array.isArray(recipients) && recipients.length ? recipients : []
     if (!recipientList.length) return NextResponse.json({ error: 'recipients array is required' }, { status: 400 })
 
-    // Look up language + category from message_templates table
-    const tmpl = await queryOne<{ language: string; category: string }>(
-      `SELECT language, category FROM message_templates WHERE name = $1 LIMIT 1`,
+    const tmpl = await queryOne<{ language: string; category: string; body_text: string }>(
+      `SELECT language, category, body_text FROM message_templates WHERE name = $1 LIMIT 1`,
       [template_name],
     )
     if (!tmpl) return NextResponse.json({ error: `Template '${template_name}' not found` }, { status: 404 })
@@ -103,7 +117,10 @@ export async function POST(request: Request) {
 
       for (const v of variants) {
         try {
-          sentId = await sendTemplate(config.phone_number_id, accessToken, v, template_name, tmpl.language, tmpl.category, params)
+          sentId = await sendTemplate(
+            config.phone_number_id, accessToken, v,
+            template_name, tmpl.language, tmpl.category, tmpl.body_text, params
+          )
           lastErr = null; break
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
